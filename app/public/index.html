@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Car-Tak-Shop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0e0e0e;
+      --surface:  #161616;
+      --surface2: #1e1e1e;
+      --border:   #2a2a2a;
+      --gold:     #c9a84c;
+      --gold-dim: #8a6f2e;
+      --text:     #e8e4dc;
+      --muted:    #6b6560;
+      --tag-bg:   #1f1c18;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 300;
+      min-height: 100vh;
+      cursor: default;
+    }
+
+    /* ── Noise overlay ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+      opacity: 0.025;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Header ── */
+    header {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1.2rem 3rem;
+      background: rgba(14,14,14,0.88);
+      backdrop-filter: blur(18px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.9rem;
+      font-weight: 300;
+      letter-spacing: 0.08em;
+      color: var(--text);
+    }
+    .logo span { color: var(--gold); font-style: italic; }
+
+    .header-meta {
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .cart-btn {
+      display: flex; align-items: center; gap: 0.5rem;
+      background: none; border: 1px solid var(--border);
+      color: var(--text); padding: 0.5rem 1rem;
+      border-radius: 2px; cursor: pointer;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.78rem; letter-spacing: 0.1em;
+      text-transform: uppercase;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .cart-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .cart-count {
+      background: var(--gold); color: #0e0e0e;
+      font-size: 0.65rem; font-weight: 500;
+      border-radius: 50%; width: 18px; height: 18px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 5rem 3rem 3rem;
+      border-bottom: 1px solid var(--border);
+      position: relative; overflow: hidden;
+    }
+    .hero-line {
+      position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gold-dim), transparent);
+    }
+    .hero-eyebrow {
+      font-size: 0.68rem; letter-spacing: 0.3em;
+      text-transform: uppercase; color: var(--gold);
+      margin-bottom: 1.2rem;
+    }
+    .hero h1 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(3rem, 6vw, 5.5rem);
+      font-weight: 300;
+      line-height: 1.05;
+      letter-spacing: -0.01em;
+      max-width: 640px;
+    }
+    .hero h1 em {
+      font-style: italic;
+      color: var(--gold);
+    }
+    .hero-sub {
+      margin-top: 1.4rem;
+      font-size: 0.9rem;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+      max-width: 400px;
+      line-height: 1.7;
+    }
+
+    /* ── Filter bar ── */
+    .filter-bar {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 1.4rem 3rem;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .filter-bar::-webkit-scrollbar { display: none; }
+
+    .filter-label {
+      font-size: 0.68rem; letter-spacing: 0.2em;
+      text-transform: uppercase; color: var(--muted);
+      margin-right: 0.8rem; white-space: nowrap;
+    }
+
+    .filter-btn {
+      background: none; border: 1px solid var(--border);
+      color: var(--muted); padding: 0.4rem 1.1rem;
+      border-radius: 2px; cursor: pointer;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.75rem; letter-spacing: 0.1em;
+      text-transform: uppercase; white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .filter-btn:hover { border-color: var(--gold-dim); color: var(--text); }
+    .filter-btn.active {
+      background: var(--gold); border-color: var(--gold);
+      color: #0e0e0e; font-weight: 500;
+    }
+
+    /* ── Main grid ── */
+    main {
+      padding: 3rem;
+      position: relative; z-index: 1;
+    }
+
+    .grid-meta {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 2rem;
+    }
+    .grid-count {
+      font-size: 0.72rem; letter-spacing: 0.15em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .grid-sort {
+      font-size: 0.72rem; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+    }
+
+    /* ── Product card ── */
+    .card {
+      background: var(--surface);
+      padding: 2rem;
+      display: flex; flex-direction: column;
+      gap: 0.8rem;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: background 0.25s;
+      opacity: 0;
+      transform: translateY(12px);
+      animation: fadeUp 0.5s forwards;
+    }
+    .card:hover { background: var(--surface2); }
+
+    .card::after {
+      content: '';
+      position: absolute; bottom: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gold-dim), transparent);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .card:hover::after { opacity: 1; }
+
+    @keyframes fadeUp {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card:nth-child(1) { animation-delay: 0.05s; }
+    .card:nth-child(2) { animation-delay: 0.1s; }
+    .card:nth-child(3) { animation-delay: 0.15s; }
+    .card:nth-child(4) { animation-delay: 0.2s; }
+    .card:nth-child(5) { animation-delay: 0.25s; }
+    .card:nth-child(6) { animation-delay: 0.3s; }
+    .card:nth-child(7) { animation-delay: 0.35s; }
+    .card:nth-child(8) { animation-delay: 0.4s; }
+
+    .card-category {
+      font-size: 0.65rem; letter-spacing: 0.22em;
+      text-transform: uppercase; color: var(--gold);
+    }
+
+    .card-icon {
+      font-size: 2.4rem;
+      margin: 0.4rem 0;
+      line-height: 1;
+      filter: grayscale(0.2);
+    }
+
+    .card-name {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.45rem;
+      font-weight: 400;
+      line-height: 1.2;
+      color: var(--text);
+    }
+
+    .card-bottom {
+      margin-top: auto;
+      display: flex; justify-content: space-between; align-items: flex-end;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .card-price {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.8rem;
+      font-weight: 300;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+    .card-price span {
+      font-size: 0.9rem;
+      color: var(--muted);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 300;
+    }
+
+    .card-stock {
+      font-size: 0.68rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .card-stock.low { color: #c9614c; }
+    .card-stock.ok  { color: var(--muted); }
+
+    .add-btn {
+      width: 100%;
+      margin-top: 1rem;
+      padding: 0.75rem;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border-radius: 1px;
+      transition: all 0.22s;
+    }
+    .add-btn:hover {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: #0e0e0e;
+      font-weight: 500;
+    }
+    .add-btn.added {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: #0e0e0e;
+      font-weight: 500;
+    }
+
+    /* ── Empty / loading ── */
+    .state-msg {
+      text-align: center;
+      padding: 6rem 2rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      grid-column: 1 / -1;
+    }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 2rem; right: 2rem;
+      background: var(--surface2);
+      border: 1px solid var(--gold-dim);
+      color: var(--text);
+      padding: 0.9rem 1.4rem;
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      border-radius: 2px;
+      transform: translateY(20px);
+      opacity: 0;
+      transition: all 0.3s;
+      z-index: 999;
+      pointer-events: none;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    /* ── Footer ── */
+    footer {
+      margin-top: 6rem;
+      padding: 2rem 3rem;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .footer-logo {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.1rem; font-weight: 300; color: var(--muted);
+    }
+    .footer-meta {
+      font-size: 0.65rem; letter-spacing: 0.2em;
+      text-transform: uppercase; color: var(--muted);
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      header { padding: 1rem 1.2rem; }
+      .hero  { padding: 3rem 1.2rem 2rem; }
+      .filter-bar { padding: 1rem 1.2rem; }
+      main   { padding: 1.5rem 1.2rem; }
+      footer { padding: 1.5rem 1.2rem; flex-direction: column; gap: 0.8rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="logo">Shop<span>Kind</span></div>
+    <div class="header-meta">Running on kind ✦ k8s</div>
+    <button class="cart-btn" onclick="toggleCart()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+      Bag
+      <span class="cart-count" id="cart-count">0</span>
+    </button>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-line"></div>
+    <p class="hero-eyebrow">New arrivals — Spring 2026</p>
+    <h1>Curated for the<br /><em>discerning</em> few.</h1>
+    <p class="hero-sub">A tightly edited selection of products worth owning. No noise, no compromise.</p>
+  </section>
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <span class="filter-label">Filter —</span>
+    <button class="filter-btn active" data-cat="All" onclick="filter(this)">All</button>
+    <button class="filter-btn" data-cat="Electronics" onclick="filter(this)">Electronics</button>
+    <button class="filter-btn" data-cat="Sports" onclick="filter(this)">Sports</button>
+    <button class="filter-btn" data-cat="Kitchen" onclick="filter(this)">Kitchen</button>
+  </div>
+
+  <!-- Products -->
+  <main>
+    <div class="grid-meta">
+      <span class="grid-count" id="grid-count">— products</span>
+      <span class="grid-sort">Sorted by relevance</span>
+    </div>
+    <div class="grid" id="grid">
+      <div class="state-msg">Loading collection…</div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-logo">Car-Tak-Shop</div>
+    <div class="footer-meta">Deployed on Kubernetes ✦ kind cluster</div>
+  </footer>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const ICONS = {
+      Electronics: '⌚',
+      Sports:      '👟',
+      Kitchen:     '☕',
+    };
+
+    let allProducts = [];
+    let cart = [];
+    let activeCategory = 'All';
+
+    // Fetch products from the API
+    fetch('/api/products')
+      .then(r => r.json())
+      .then(({ products }) => {
+        allProducts = products;
+        render(products);
+      })
+      .catch(() => {
+        // Fallback demo data when running without the backend
+        allProducts = [
+          { id: 1, name: 'Wireless Headphones', price: 99.99,  stock: 50, category: 'Electronics' },
+          { id: 2, name: 'Running Shoes',        price: 79.99,  stock: 30, category: 'Sports' },
+          { id: 3, name: 'Coffee Maker',         price: 49.99,  stock: 20, category: 'Kitchen' },
+          { id: 4, name: 'Yoga Mat',             price: 29.99,  stock: 100, category: 'Sports' },
+          { id: 5, name: 'Smart Watch',          price: 199.99, stock: 15, category: 'Electronics' },
+        ];
+        render(allProducts);
+      });
+
+    function render(products) {
+      const grid = document.getElementById('grid');
+      document.getElementById('grid-count').textContent =
+        `${products.length} product${products.length !== 1 ? 's' : ''}`;
+
+      if (!products.length) {
+        grid.innerHTML = '<div class="state-msg">No products in this category.</div>';
+        return;
+      }
+
+      grid.innerHTML = products.map(p => `
+        <div class="card" data-id="${p.id}">
+          <div class="card-category">${p.category}</div>
+          <div class="card-icon">${ICONS[p.category] || '📦'}</div>
+          <div class="card-name">${p.name}</div>
+          <div class="card-bottom">
+            <div class="card-price">
+              <span>$</span>${p.price.toFixed(2)}
+            </div>
+            <div class="card-stock ${p.stock < 20 ? 'low' : 'ok'}">
+              ${p.stock < 20 ? `Only ${p.stock} left` : `${p.stock} in stock`}
+            </div>
+          </div>
+          <button class="add-btn" id="btn-${p.id}" onclick="addToCart(${p.id}, '${p.name}', ${p.price})">
+            Add to bag
+          </button>
+        </div>
+      `).join('');
+    }
+
+    function filter(btn) {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeCategory = btn.dataset.cat;
+      const filtered = activeCategory === 'All'
+        ? allProducts
+        : allProducts.filter(p => p.category === activeCategory);
+      render(filtered);
+    }
+
+    function addToCart(id, name, price) {
+      cart.push({ id, name, price });
+      document.getElementById('cart-count').textContent = cart.length;
+
+      const btn = document.getElementById(`btn-${id}`);
+      if (btn) {
+        btn.textContent = '✦ Added';
+        btn.classList.add('added');
+        setTimeout(() => {
+          btn.textContent = 'Add to bag';
+          btn.classList.remove('added');
+        }, 1800);
+      }
+
+      showToast(`${name} added to bag`);
+    }
+
+    function toggleCart() {
+      if (!cart.length) { showToast('Your bag is empty'); return; }
+      const total = cart.reduce((s, i) => s + i.price, 0);
+      showToast(`${cart.length} item${cart.length > 1 ? 's' : ''} — $${total.toFixed(2)} total`);
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(t._timer);
+      t._timer = setTimeout(() => t.classList.remove('show'), 2800);
+    }
+  </script>
+</body>
+</html>

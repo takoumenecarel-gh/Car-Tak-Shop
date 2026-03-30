@@ -1,0 +1,108 @@
+# =============================================================================
+#  DevOps Pro Institute — Kubernetes Advanced Lab Cluster
+#  Kind cluster configuration — ecommerce-app project
+# =============================================================================
+#
+#  KEY DESIGN DECISIONS:
+#
+#  1. disableDefaultCNI: true  →  kindnet does NOT enforce NetworkPolicies.
+#     Calico is installed after cluster creation via the Tigera Operator.
+#
+#  2. podSubnet: 192.168.0.0/16  →  Required by Calico (its default CIDR).
+#     Do NOT change unless you also update Calico's custom-resources.yaml.
+#
+#  3. All NodePorts are mapped on the control-plane node only.
+#     Worker nodes do NOT need port mappings on kind.
+#
+#  PORT MAPPING REFERENCE:
+#  Host 80    → container 80    : Ingress Controller HTTP
+#  Host 443   → container 443   : Ingress Controller HTTPS
+#  Host 8080  → container 8080  : Direct pod access (no port-forward needed)
+#  Host 9113  → container 9113  : Prometheus metrics sidecar
+#  Host 30080 → NodePort 30080  : Frontend NodePort fallback
+#  Host 30090 → NodePort 30090  : spare
+#  Host 30100 → NodePort 30100  : spare 
+#  Host 30200 → NodePort 30200  : spare
+#  Host 30300 → NodePort 30300  : ecommerce app NodePort (this project)
+#  Host 30400 → NodePort 30400  : spare
+#  Host 30500 → NodePort 30500  : spare
+#  Host 30600 → NodePort 30600  : spare
+#
+# =============================================================================
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: devsecops-lab2
+
+networking:
+  # Required for Calico — disables kindnet so Calico can take over as CNI.
+  # Without this, NetworkPolicy objects are stored in etcd but never enforced.
+  disableDefaultCNI: true
+
+  # Required by Calico — this is its default pod CIDR.
+  podSubnet: "192.168.0.0/16"
+
+nodes:
+
+  # ── Control Plane ──────────────────────────────────────────────────────────
+  - role: control-plane
+
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+
+    extraPortMappings:
+
+      # Ingress Controller
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+
+      # Direct pod access without port-forward
+      - containerPort: 8080
+        hostPort: 8080
+        protocol: TCP
+
+      # Prometheus metrics sidecar
+      - containerPort: 9113
+        hostPort: 9113
+        protocol: TCP
+
+      # NodePort range
+      - containerPort: 30080
+        hostPort: 30080
+        protocol: TCP
+      - containerPort: 30090
+        hostPort: 30090
+        protocol: TCP
+      - containerPort: 30100
+        hostPort: 30100
+        protocol: TCP
+      - containerPort: 30200
+        hostPort: 30200
+        protocol: TCP
+      - containerPort: 30300     # ← ecommerce app NodePort (this project)
+        hostPort: 30300
+        protocol: TCP
+      - containerPort: 30400
+        hostPort: 30400
+        protocol: TCP
+      - containerPort: 30500
+        hostPort: 30500
+        protocol: TCP
+      - containerPort: 30600
+        hostPort: 30600
+        protocol: TCP
+
+  # ── Worker Node 1 ──────────────────────────────────────────────────────────
+  # Worker nodes do not need extraPortMappings on kind.
+  - role: worker
+
+  # ── Worker Node 2 ──────────────────────────────────────────────────────────
+  - role: worker

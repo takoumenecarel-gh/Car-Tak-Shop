@@ -1,0 +1,234 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/ecommerce-app
+  CLUSTER_NAME: devsecops-lab2
+
+# ──────────────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── 1. Unit tests ────────────────────────────────────────────────────────────
+  test:
+    name: 🧪 Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install deps
+        working-directory: app
+        run: npm ci
+
+      - name: Run tests
+        working-directory: app
+        run: npm test
+
+  # ── 2. SAST — Semgrep ────────────────────────────────────────────────────────
+  sast:
+    name: 🔍 SAST (Semgrep)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Semgrep scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/nodejs
+            p/owasp-top-ten
+            p/security-audit
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        continue-on-error: true
+
+  # ── 3. Secret scanning — Gitleaks ────────────────────────────────────────────
+  secret-scan:
+    name: 🕵️ Secret Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 4. Dependency audit ───────────────────────────────────────────────────────
+  dependency-scan:
+    name: 🔐 Dependency Audit
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: npm audit
+        working-directory: app
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Snyk scan
+        uses: snyk/actions/node@master
+        with:
+          args: --severity-threshold=high --file=app/package.json
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        continue-on-error: true
+
+  # ── 5. Helm lint ─────────────────────────────────────────────────────────────
+  helm-lint:
+    name: ⎈ Helm Lint
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v3
+        with:
+          version: '3.14.0'
+
+      - name: Lint chart
+        run: helm lint helm/ecommerce/
+
+      - name: Template dry-run
+        run: |
+          helm template ecommerce helm/ecommerce/ \
+            --set image.repository=${{ env.IMAGE_NAME }} \
+            --set image.tag=dry-run \
+            --debug
+
+  # ── 6. Build & push image ────────────────────────────────────────────────────
+  build-push:
+    name: 🐳 Build & Push
+    runs-on: ubuntu-latest
+    needs: [sast, secret-scan, dependency-scan, helm-lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=short
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+  # ── 7. Container image scan — Trivy ──────────────────────────────────────────
+  image-scan:
+    name: 🛡️ Image Scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: build-push
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Trivy — SARIF upload
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:sha-${{ github.sha && substring(github.sha, 0, 7) }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+
+      - name: Upload to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Trivy — table (human-readable)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:sha-${{ github.sha && substring(github.sha, 0, 7) }}
+          format: table
+          severity: CRITICAL,HIGH,MEDIUM
+
+  # ── 8. Deploy to kind (main only) ────────────────────────────────────────────
+  # NOTE: Requires a self-hosted runner on the same machine as the cluster,
+  # OR a tunnel (cloudflared / ngrok) exposing the Kubernetes API server.
+  deploy:
+    name: 🚀 Deploy to kind
+    runs-on: ubuntu-latest      # change to: runs-on: self-hosted  if using local runner
+    needs: image-scan
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-kubectl@v3
+      - uses: azure/setup-helm@v3
+        with:
+          version: '3.14.0'
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Verify cluster connectivity
+        run: |
+          kubectl cluster-info --context kind-${{ env.CLUSTER_NAME }}
+          kubectl get nodes
+
+      - name: Helm deploy
+        run: |
+          helm upgrade --install ecommerce helm/ecommerce/ \
+            --namespace ecommerce \
+            --create-namespace \
+            --set image.repository=${{ env.IMAGE_NAME }} \
+            --set image.tag=sha-$(echo ${{ github.sha }} | cut -c1-7) \
+            --set image.pullPolicy=Always \
+            --wait \
+            --timeout=5m \
+            --atomic
+
+      - name: Verify rollout
+        run: |
+          kubectl rollout status deployment/ecommerce -n ecommerce --timeout=3m
+          kubectl get pods -n ecommerce
+          kubectl get svc -n ecommerce

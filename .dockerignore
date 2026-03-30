@@ -1,0 +1,8 @@
+node_modules
+.git
+.github
+helm
+*.md
+.env*
+coverage
+*.test.js
