@@ -1,0 +1,5 @@
+image:
+  repository: <ECR_REPO>
+  tag: latest
+
+replicaCount: 2

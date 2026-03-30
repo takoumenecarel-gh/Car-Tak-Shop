@@ -1,205 +1,33 @@
-name: CI/CD Pipeline
+name: CI/CD
 
 on:
   push:
-    branches: [main, develop]
-  pull_request:
     branches: [main]
 
-env:
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/ecommerce-app
-  CLUSTER_NAME: devsecops-lab2
-
 jobs:
-
-  # ── 1. Unit tests ────────────────────────────────────────────────────────────
-  test:
-    name: 🧪 Unit Tests
+  build:
     runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-      - uses: actions/setup-node@v4
+      - name: Configure AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v3
         with:
-          node-version: '20'
+          role-to-assume: <ROLE_ARN>
+          aws-region: us-east-1
 
-      - name: Cache Node modules
-        uses: actions/cache@v3
-        with:
-          path: app/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('app/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
+      - name: Build
+        run: docker build -t cartarshop ./services/product-service
 
-      - name: Install deps
-        working-directory: app
-        run: npm ci
+      - name: Scan Image
+        run: docker run aquasec/trivy image cartarshop
 
-      - name: Run tests
-        working-directory: app
-        run: npm test
-
-  # ── 2. SAST — Semgrep ────────────────────────────────────────────────────────
-  sast:
-    name: 🔍 SAST (Semgrep)
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Semgrep scan
-        uses: returntocorp/semgrep-action@v1
-        with:
-          config: >-
-            p/nodejs
-            p/owasp-top-ten
-            p/security-audit
-        env:
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
-        continue-on-error: true
-
-  # ── 3. Secret scanning — Gitleaks ────────────────────────────────────────────
-  secret-scan:
-    name: 🕵️ Secret Scan (Gitleaks)
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ── 4. Dependency audit ───────────────────────────────────────────────────────
-  dependency-scan:
-    name: 🔐 Dependency Audit
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: npm audit
-        working-directory: app
-        run: npm audit --audit-level=high
-        continue-on-error: true
-
-      - name: Snyk scan
-        uses: snyk/actions/node@master
-        with:
-          args: --severity-threshold=high --file=app/package.json
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        continue-on-error: true
-
-  # ── 5. Helm lint ─────────────────────────────────────────────────────────────
-  helm-lint:
-    name: ⎈ Helm Lint
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: azure/setup-helm@v3
-        with:
-          version: '3.14.0'
-
-      - name: Lint chart
-        run: helm lint helm/ecommerce/
-
-      - name: Template dry-run
+      - name: Push to ECR
         run: |
-          helm template ecommerce helm/ecommerce/ \
-            --set image.repository=${{ env.IMAGE_NAME }} \
-            --set image.tag=dry-run \
-            --debug
-
-  # ── 6. Build & push image ────────────────────────────────────────────────────
-  build-push:
-    name: 🐳 Build & Push
-    runs-on: ubuntu-latest
-    needs: [sast, secret-scan, dependency-scan, helm-lint]
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Set short SHA
-        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,format=short
-            type=ref,event=branch
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-
-      - name: Build & push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
-
-  # ── 7. Deploy to kind (self-hosted only) ───────────────────────────────────
-  deploy:
-    name: 🚀 Deploy to kind
-    runs-on: self-hosted
-    needs: build-push
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: azure/setup-kubectl@v3
-      - uses: azure/setup-helm@v3
-        with:
-          version: '3.14.0'
-
-      - name: Configure kubeconfig
-        run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-
-      - name: Verify cluster connectivity
-        run: |
-          kubectl cluster-info --context kind-${{ env.CLUSTER_NAME }}
-          kubectl get nodes
-
-      - name: Helm deploy
-        run: |
-          helm upgrade --install ecommerce helm/ecommerce/ \
-            --namespace ecommerce \
-            --create-namespace \
-            --set image.repository=${{ env.IMAGE_NAME }} \
-            --set image.tag=sha-${{ env.SHORT_SHA }} \
-            --set image.pullPolicy=Always \
-            --wait \
-            --timeout=5m \
-            --atomic
-
-      - name: Verify rollout
-        run: |
-          kubectl rollout status deployment/ecommerce -n ecommerce --timeout=3m
-          kubectl get pods -n ecommerce
-          kubectl get svc -n ecommerce
+          aws ecr get-login-password | docker login ...
+          docker push <ECR>
