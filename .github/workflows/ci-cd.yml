@@ -23,7 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Setup Node and cache dependencies properly
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -134,24 +133,17 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Set short SHA
+      - name: Set SHORT_SHA
         run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,format=short
-            type=ref,event=branch
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-      - name: Build & push
+      - name: Build & push Docker image
+        id: docker_build
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:sha-${{ env.SHORT_SHA }}
+            ${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
@@ -168,7 +160,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Trivy — SARIF upload
+      - name: Trivy — scan image
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.IMAGE_NAME }}:sha-${{ env.SHORT_SHA }}
@@ -176,19 +168,15 @@ jobs:
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           exit-code: '0'
-      - name: Verify SARIF file
+      - name: Upload SARIF if exists
+        if: ${{ always() }}
         run: |
           if [ -f trivy-results.sarif ]; then
-            echo "SARIF exists"
+            gh api graphql -F sarif=@trivy-results.sarif -f repositoryId="${{ github.repository }}" \
+              -f ref="refs/heads/${GITHUB_REF_NAME}" -f toolName="Trivy" -f checkoutUri="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
           else
-            echo "SARIF missing, skipping upload"
-            exit 0
+            echo "No SARIF generated, skipping upload"
           fi
-      - name: Upload to GitHub Security tab
-        if: github.repository == 'your-org/your-repo'
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: trivy-results.sarif
       - name: Trivy — table (human-readable)
         uses: aquasecurity/trivy-action@master
         with:
