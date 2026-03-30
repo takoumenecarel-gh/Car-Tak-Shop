@@ -22,11 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-
       - name: Cache Node modules
         uses: actions/cache@v3
         with:
@@ -34,7 +32,6 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('app/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
-
       - name: Install deps
         working-directory: app
         run: |
@@ -43,7 +40,6 @@ jobs:
           else
             npm install
           fi
-
       - name: Run tests
         working-directory: app
         run: npm test
@@ -161,6 +157,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Trivy — scan image
+        if: github.repository_owner == github.actor  # Skip for fork PRs
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.IMAGE_NAME }}:sha-${{ env.SHORT_SHA }}
@@ -169,7 +166,7 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: '0'
       - name: Upload SARIF if exists
-        if: ${{ always() }}
+        if: github.repository_owner == github.actor && always()
         run: |
           if [ -f trivy-results.sarif ]; then
             gh api graphql -F sarif=@trivy-results.sarif -f repositoryId="${{ github.repository }}" \
@@ -178,6 +175,7 @@ jobs:
             echo "No SARIF generated, skipping upload"
           fi
       - name: Trivy — table (human-readable)
+        if: github.repository_owner == github.actor
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.IMAGE_NAME }}:sha-${{ env.SHORT_SHA }}
